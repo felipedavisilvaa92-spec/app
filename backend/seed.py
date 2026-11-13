@@ -35,7 +35,8 @@ async def seed() -> None:
                 )
                 created += 1
     await ensure_indexes()
-    print(f"Seed ok: {created} variantes criadas. Catalogo fixo: {len(PRODUCTS)} produtos, 108 variantes.")
+    total = sum(len(product["colors"]) for product in PRODUCTS) * len(SIZES)
+    print(f"Seed ok: {created} variantes criadas. Catalogo fixo: {len(PRODUCTS)} produtos, {total} variantes.")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,10 @@
-"""Fixed clothing catalog: 3 product types, sizes P–GG, 108 variants total."""
+"""Fixed clothing catalog: camisetas, regatas e shorts — tamanhos P–GG.
+
+Cores por produto:
+- Camiseta: 12 cores
+- Regata: marrom, preta, bege, branca
+- Short: branca, preta, azul marinho
+"""
 
 SIZES = ["P", "M", "G", "GG"]
 
@@ -16,6 +22,7 @@ CORE_COLORS = [
     "off_white",
     "vermelha",
 ]
+REGATA_COLORS = ["marrom", "preta", "bege", "branca"]
 SHORT_COLORS = ["branca", "preta", "azul_marinho"]
 
 COLOR_NAMES = {
@@ -31,6 +38,7 @@ COLOR_NAMES = {
     "rosa": "Rosa",
     "off_white": "Off White",
     "vermelha": "Vermelha",
+    "bege": "Bege",
 }
 
 PRODUCTS = [
@@ -46,7 +54,7 @@ PRODUCTS = [
         "name": "Regata",
         "name_plural": "Regatas",
         "description": "Regatas casuais e caneladas",
-        "colors": CORE_COLORS,
+        "colors": REGATA_COLORS,
     },
     {
         "id": "short",
@@ -57,4 +65,4 @@ PRODUCTS = [
     },
 ]
 
-TOTAL_VARIANTS = 48 + 48 + 12  # 108
+TOTAL_VARIANTS = 48 + 16 + 12  # 76

@@ -16,6 +16,7 @@ export const COLOR_META: Record<string, ColorMeta> = {
   branca: { name: "Branca", hex: "#FFFFFF", border: "#CBD5E1", text: "#0F172A" },
   caqui: { name: "Caqui", hex: "#C2B280", border: "#A39260", text: "#3E3618" },
   marrom: { name: "Marrom", hex: "#78350F", border: "#542407", text: "#FFFFFF" },
+  bege: { name: "Bege", hex: "#E6D5B8", border: "#C6AC80", text: "#5F4C28" },
   rosa: { name: "Rosa", hex: "#F472B6", border: "#DB2777", text: "#831843" },
   off_white: { name: "Off White", hex: "#FAF9F6", border: "#E2E8F0", text: "#334155" },
   vermelha: { name: "Vermelha", hex: "#EF4444", border: "#DC2626", text: "#FFFFFF" },
