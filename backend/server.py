@@ -24,6 +24,7 @@ from routers.stock import router as stock_router
 from routers.movements import router as movements_router
 from routers.dashboard import router as dashboard_router
 from routers.export import router as export_router
+from routers.orders import router as orders_router
 
 
 # Startup runs before the yield, shutdown after it. Add your own setup/teardown here.
@@ -76,6 +77,7 @@ api_router.include_router(stock_router)
 api_router.include_router(movements_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(export_router)
+api_router.include_router(orders_router)
 
 # Include the router in the main app
 app.include_router(api_router)

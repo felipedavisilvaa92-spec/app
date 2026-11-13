@@ -42,6 +42,7 @@ export interface Movement {
   kind: MovementKind;
   quantity: number;
   note: string | null;
+  order_number: number | null;
   created_at: string;
 }
 
@@ -57,4 +58,30 @@ export interface DashboardSummary {
   zero_stock: number;
   low_stock: number;
   top_sold: TopSold[];
+}
+
+export interface OrderItem {
+  id: string;
+  item_id: string;
+  product_type: string;
+  size: string;
+  color: string;
+  quantity: number;
+  picked: boolean;
+}
+
+export interface Order {
+  id: string;
+  number: number;
+  comprador: string;
+  separador: string;
+  status: "aberto" | "finalizado" | "cancelado";
+  items: OrderItem[];
+  created_at: string;
+  finalized_at: string | null;
+}
+
+export interface OrderCreate {
+  comprador: string;
+  separador: string;
 }

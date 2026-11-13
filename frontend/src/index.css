@@ -131,3 +131,26 @@
     @apply font-sans;
     }
 }
+
+/* Folha de estilo exclusiva para impressão (comprovante de pedido):
+   some o menu, botões e cores de fundo; mostra apenas o comprovante limpo. */
+.print-only {
+    display: none;
+}
+
+@media print {
+    .screen-only {
+        display: none !important;
+    }
+    .print-only {
+        display: block !important;
+    }
+    [data-sonner-toaster] {
+        display: none !important;
+    }
+    html,
+    body {
+        background: #ffffff !important;
+        color: #000000 !important;
+    }
+}

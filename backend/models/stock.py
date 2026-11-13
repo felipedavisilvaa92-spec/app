@@ -59,6 +59,7 @@ class Movement(BaseModel):
     kind: Literal["entrada", "saida"]
     quantity: int
     note: Optional[str] = None
+    order_number: Optional[int] = None
     created_at: datetime = Field(default_factory=_now)
 
 

@@ -5,13 +5,14 @@ import { Toaster } from "@/components/ui/sonner";
 const NAV_ITEMS = [
   { to: "/", label: "Painel", testId: "nav-painel" },
   { to: "/estoque", label: "Estoque", testId: "nav-estoque" },
+  { to: "/pedidos", label: "Pedidos", testId: "nav-pedidos" },
   { to: "/historico", label: "Histórico", testId: "nav-historico" },
 ];
 
 export default function Layout() {
   return (
     <div className="min-h-svh bg-background">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-xs backdrop-blur-xl">
+      <header className="screen-only sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-xs backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2" data-testid="brand-link">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
