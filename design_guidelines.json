@@ -1,0 +1,208 @@
+{
+  "project_name": "Controlador de Estoque — Moda & E-commerce",
+  "app_type": "dashboard",
+  "archetype": "ARCHETYPE 4: SWISS & HIGH-CONTRAST + WARM ATELIER TOUCH",
+  "theme_strategy": {
+    "default_theme": "light",
+    "theme_support": "light_and_dark",
+    "rationale": "For daily operational inventory management, a crisp, paper-like warm Swiss atelier light palette offers maximum legibility and reduces cognitive fatigue during high-volume manual stock adjustments. A deep slate dark mode is also provided for evening warehouse checks."
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit Variable",
+      "body": "Plus Jakarta Sans Variable",
+      "mono": "JetBrains Mono Variable"
+    },
+    "css_import": "@import \"@fontsource-variable/outfit\";\n@import \"@fontsource-variable/plus-jakarta-sans\";\n@import \"@fontsource-variable/jetbrains-mono\";",
+    "scale_px": {
+      "display": 48,
+      "h1": 36,
+      "h2": 28,
+      "h3": 20,
+      "body": 16,
+      "caption": 14
+    },
+    "rules": {
+      "headings": "font-heading font-bold tracking-tight text-foreground",
+      "body": "font-sans text-base leading-relaxed text-foreground",
+      "mono_numbers": "font-mono font-medium tracking-normal",
+      "labels": "text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground"
+    }
+  },
+  "colors": {
+    "surfaces": [
+      {
+        "name": "page",
+        "kind": "solid",
+        "bg": "#F8FAFC",
+        "on_bg": "#0F172A",
+        "on_bg_muted": "#64748B",
+        "roles": {
+          "link": "#2563EB",
+          "error": "#DC2626",
+          "success": "#16A34A"
+        }
+      },
+      {
+        "name": "panel",
+        "kind": "solid",
+        "bg": "#FFFFFF",
+        "on_bg": "#0F172A",
+        "on_bg_muted": "#64748B",
+        "roles": {
+          "link": "#2563EB",
+          "error": "#DC2626",
+          "success": "#16A34A"
+        }
+      },
+      {
+        "name": "card_elevated",
+        "kind": "solid",
+        "bg": "#FFFFFF",
+        "on_bg": "#0F172A",
+        "on_bg_muted": "#475569",
+        "roles": {
+          "link": "#2563EB",
+          "error": "#B91C1C",
+          "success": "#15803D"
+        }
+      },
+      {
+        "name": "badge_entrada",
+        "kind": "solid",
+        "bg": "#DCFCE7",
+        "on_bg": "#14532D",
+        "on_bg_muted": "#166534"
+      },
+      {
+        "name": "badge_saida",
+        "kind": "solid",
+        "bg": "#FEE2E2",
+        "on_bg": "#7F1D1D",
+        "on_bg_muted": "#991B1B"
+      },
+      {
+        "name": "badge_zerado",
+        "kind": "solid",
+        "bg": "#FEF2F2",
+        "on_bg": "#991B1B",
+        "on_bg_muted": "#B91C1C"
+      },
+      {
+        "name": "badge_baixo",
+        "kind": "solid",
+        "bg": "#FEF3C7",
+        "on_bg": "#78350F",
+        "on_bg_muted": "#92400E"
+      },
+      {
+        "name": "app_header",
+        "kind": "glass",
+        "contrast_against": "#FFFFFF",
+        "guarantee": "backdrop-blur-xl bg-white/90 border-b border-slate-200/80 shadow-xs",
+        "on_bg": "#0F172A",
+        "on_bg_muted": "#475569"
+      },
+      {
+        "name": "inverse",
+        "kind": "solid",
+        "bg": "#0F172A",
+        "on_bg": "#F8FAFC",
+        "on_bg_muted": "#94A3B8"
+      }
+    ],
+    "accent": "#0F172A",
+    "on_accent": "#FFFFFF",
+    "apparel_color_palette": {
+      "cinza": { "name": "Cinza", "hex": "#9CA3AF", "border": "#6B7280", "badge_text": "#1F2937" },
+      "roxo": { "name": "Roxo", "hex": "#8B5CF6", "border": "#7C3AED", "badge_text": "#FFFFFF" },
+      "amarelo": { "name": "Amarelo", "hex": "#FBBF24", "border": "#D97706", "badge_text": "#78350F" },
+      "azul_royal": { "name": "Azul Royal", "hex": "#2563EB", "border": "#1D4ED8", "badge_text": "#FFFFFF" },
+      "azul_marinho": { "name": "Azul Marinho", "hex": "#1E293B", "border": "#0F172A", "badge_text": "#FFFFFF" },
+      "preta": { "name": "Preta", "hex": "#18181B", "border": "#09090B", "badge_text": "#FFFFFF" },
+      "branca": { "name": "Branca", "hex": "#FFFFFF", "border": "#CBD5E1", "badge_text": "#0F172A" },
+      "caqui": { "name": "Caqui", "hex": "#C2B280", "border": "#A39260", "badge_text": "#3E3618" },
+      "marrom": { "name": "Marrom", "hex": "#78350F", "border": "#542407", "badge_text": "#FFFFFF" },
+      "rosa": { "name": "Rosa", "hex": "#F472B6", "border": "#DB2777", "badge_text": "#831843" },
+      "off_white": { "name": "Off White", "hex": "#FAF9F6", "border": "#E2E8F0", "badge_text": "#334155" },
+      "vermelha": { "name": "Vermelha", "hex": "#EF4444", "border": "#DC2626", "badge_text": "#FFFFFF" }
+    }
+  },
+  "entry_surfaces": {
+    "/": "dashboard view — summary metrics at top, visual color-matrix stock table in center, quick movement modal trigger",
+    "/historico": "audit ledger view — movement stream with entrada/saída type badges, date filters, and variant search"
+  },
+  "catalog_specifications": {
+    "product_types": [
+      {
+        "id": "camiseta",
+        "name": "Camiseta",
+        "description": "Camisetas unissex em algodão",
+        "sizes": ["P", "M", "G", "GG"],
+        "colors": ["cinza", "roxo", "amarelo", "azul_royal", "azul_marinho", "preta", "branca", "caqui", "marrom", "rosa", "off_white", "vermelha"],
+        "total_variants": 48
+      },
+      {
+        "id": "regata",
+        "name": "Regata",
+        "description": "Regatas caneladas / casuais",
+        "sizes": ["P", "M", "G", "GG"],
+        "colors": ["cinza", "roxo", "amarelo", "azul_royal", "azul_marinho", "preta", "branca", "caqui", "marrom", "rosa", "off_white", "vermelha"],
+        "total_variants": 48
+      },
+      {
+        "id": "short",
+        "name": "Short",
+        "description": "Shorts casuais e esportivos",
+        "sizes": ["P", "M", "G", "GG"],
+        "colors": ["branca", "preta", "azul_marinho"],
+        "total_variants": 12
+      }
+    ],
+    "total_catalog_variants": 108
+  },
+  "layout_and_grids": {
+    "structure": "Single-page responsive dashboard with clean tab navigation and persistent top bar",
+    "top_metrics_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8",
+    "stock_matrix_grid": "Matrix view with Color rows and Size columns (P, M, G, GG), plus aggregated totals per color and quick +/- action triggers",
+    "filters_bar": "flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-white border border-slate-200 shadow-xs mb-6"
+  },
+  "motion_and_interactions": {
+    "transitions": "transition-colors duration-150 ease-out, transition-transform duration-150 ease-out",
+    "hover_states": "hover:border-slate-400 hover:shadow-sm",
+    "quick_adjust_feedback": "Subtle pulse badge on increment/decrement with immediate optimistic UI update",
+    "modal_motion": "Smooth scale-in dialog for Nova Dialog component"
+  },
+  "accessibility": {
+    "contrast_compliance": "WCAG AA (4.5:1 for body and data metrics, 3:1 for large display headers)",
+    "color_swatches": "Always accompany color swatch dots with textual Portuguese color names to ensure accessibility for color-blind store owners",
+    "test_ids": {
+      "summary_total_pieces": "stock-summary-total-pieces",
+      "summary_zero_stock": "stock-summary-zero-stock",
+      "summary_low_stock": "stock-summary-low-stock",
+      "summary_top_sold": "stock-summary-top-sold",
+      "filter_product_type": "filter-product-type-select",
+      "filter_color": "filter-color-select",
+      "filter_size": "filter-size-select",
+      "search_input": "stock-search-input",
+      "btn_new_movement": "btn-open-movement-modal",
+      "modal_movement_form": "form-stock-movement",
+      "modal_input_quantity": "input-movement-quantity",
+      "modal_input_notes": "input-movement-notes",
+      "modal_btn_submit": "btn-submit-movement",
+      "tab_stock_matrix": "tab-trigger-stock-matrix",
+      "tab_history": "tab-trigger-history-ledger",
+      "history_filter_type": "history-filter-movement-type",
+      "history_table": "table-movement-history"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Language: Implement the entire UI in Brazilian Portuguese ('Estoque', 'Entrada', 'Saída', 'Camisetas', 'Regatas', 'Shorts', 'Tamanho', 'Cor', 'Histórico de Movimentações').",
+    "Data structure: Initialize the database seed with the exact 108 variants (48 Camisetas + 48 Regatas + 12 Shorts) so the user opens a ready-to-use controller without having to create items from scratch.",
+    "Stock Matrix View: For each product type (Camiseta, Regata, Short), render an intuitive matrix table where rows are the allowed Colors (with swatch badge and name) and columns are the Sizes (P, M, G, GG), displaying current quantities with 1-click quick '+ Entrada' and '- Saída' buttons.",
+    "Validation rule: Any 'Saída' (sale/removal) must be strictly validated on both frontend and backend to never exceed current stock quantity, displaying a helpful error message ('Quantidade de saída maior que o estoque disponível').",
+    "Movement History: Keep a dedicated ledger tab showing timestamped movements with Type (Entrada [Verde] / Saída [Vermelho]), Product, Color, Size, Quantity changed, and optional Note.",
+    "Dashboard Summary Cards: Include Total de Peças em Estoque, Variantes Zeradas, Variantes com Baixo Estoque (1 a 3 peças), and Mais Vendidos (Top Saídas).",
+    "Do not include price fields or financial totals, as specifically requested by user. Focus purely on piece quantities and inventory movement flow."
+  ]
+}

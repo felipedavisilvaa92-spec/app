@@ -18,6 +18,12 @@ load_dotenv(ROOT_DIR / '.env')
 # MongoDB connection
 from lib.db import client, db, ensure_indexes
 
+# Resource routers (each exposes an APIRouter; mounted into api_router below)
+from routers.catalog import router as catalog_router
+from routers.stock import router as stock_router
+from routers.movements import router as movements_router
+from routers.dashboard import router as dashboard_router
+
 
 # Startup runs before the yield, shutdown after it. Add your own setup/teardown here.
 @asynccontextmanager
@@ -62,6 +68,12 @@ async def create_status_check(input: StatusCheckCreate):
 async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
+
+# Mount resource routers under /api
+api_router.include_router(catalog_router)
+api_router.include_router(stock_router)
+api_router.include_router(movements_router)
+api_router.include_router(dashboard_router)
 
 # Include the router in the main app
 app.include_router(api_router)

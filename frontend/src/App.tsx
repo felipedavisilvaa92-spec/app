@@ -1,11 +1,19 @@
-import { Routes, Route } from "react-router-dom";
-import Home from "@/pages/Home";
+import { Navigate, Route, Routes } from "react-router-dom";
+import Layout from "@/components/Layout";
+import Dashboard from "@/pages/Dashboard";
+import Estoque from "@/pages/Estoque";
+import Historico from "@/pages/Historico";
 
 // One <Route> per page in src/pages; BrowserRouter already wraps this in main.tsx.
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/estoque" element={<Estoque />} />
+        <Route path="/historico" element={<Historico />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
     </Routes>
   );
 }
