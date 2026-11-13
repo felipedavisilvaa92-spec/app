@@ -1,12 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Boxes, PackageX, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, Download, PackageX, TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
-import { apiGet } from "@/lib/api";
+import { toast } from "sonner";
+import { apiDownload, apiGet } from "@/lib/api";
 import { colorMeta, productName } from "@/lib/colors";
 import { formatDateTime } from "@/lib/format";
 import type { Catalog, DashboardSummary, Movement } from "@/lib/types";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { QuantityDelta, TypeBadge } from "@/components/movement";
@@ -50,6 +51,12 @@ export default function Dashboard() {
     queryFn: () => apiGet<Movement[]>("/movements?limit=8"),
   });
 
+  const exportMutation = useMutation({
+    mutationFn: () => apiDownload("/export", "estoque.xlsx"),
+    onSuccess: () => toast.success("Planilha baixada com sucesso!"),
+    onError: () => toast.error("Não foi possível gerar a planilha."),
+  });
+
   const summary = summaryQuery.data;
   const recent = recentQuery.data ?? [];
   const topSold = summary?.top_sold ?? [];
@@ -68,10 +75,21 @@ export default function Dashboard() {
             O que você compra e vende no seu e-commerce, em um só lugar.
           </p>
         </div>
-        <Link to="/estoque" className={buttonVariants()} data-testid="dashboard-go-stock">
-          Abrir Estoque
-          <ArrowRight className="ml-2 size-4" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            data-testid="dashboard-export-button"
+            disabled={exportMutation.isPending}
+            onClick={() => exportMutation.mutate()}
+          >
+            <Download className="mr-2 size-4" />
+            {exportMutation.isPending ? "Gerando..." : "Exportar Excel"}
+          </Button>
+          <Link to="/estoque" className={buttonVariants()} data-testid="dashboard-go-stock">
+            Abrir Estoque
+            <ArrowRight className="ml-2 size-4" />
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

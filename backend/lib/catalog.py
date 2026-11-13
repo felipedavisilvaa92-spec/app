@@ -18,6 +18,21 @@ CORE_COLORS = [
 ]
 SHORT_COLORS = ["branca", "preta", "azul_marinho"]
 
+COLOR_NAMES = {
+    "cinza": "Cinza",
+    "roxo": "Roxo",
+    "amarelo": "Amarelo",
+    "azul_royal": "Azul Royal",
+    "azul_marinho": "Azul Marinho",
+    "preta": "Preta",
+    "branca": "Branca",
+    "caqui": "Caqui",
+    "marrom": "Marrom",
+    "rosa": "Rosa",
+    "off_white": "Off White",
+    "vermelha": "Vermelha",
+}
+
 PRODUCTS = [
     {
         "id": "camiseta",

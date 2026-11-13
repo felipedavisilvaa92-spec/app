@@ -21,6 +21,7 @@ App de controle de estoque para e-commerce de roupas. UI toda em português (pt-
 - GET /movements?kind=&item_id=&limit= — histórico (mais recente primeiro)
 - POST /movements { item_id, kind: entrada|saida, quantity>0, note? } → registra movimento e atualiza estoque atomicamente
 - GET /dashboard — { total_pieces, zero_stock, low_stock, top_sold[5] }
+- GET /export — planilha .xlsx para backup (abas "Estoque" e "Histórico"), baixada pelo botão "Exportar Excel" no painel
 - GET /status, POST /status — endpoint do template (não usado pela UI)
 
 ## Frontend
