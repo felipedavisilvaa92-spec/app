@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { Shirt } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import BackupMenu from "@/components/BackupMenu";
 
 const NAV_ITEMS = [
   { to: "/", label: "Painel", testId: "nav-painel" },
@@ -21,6 +22,7 @@ export default function Layout() {
             <span className="font-heading text-lg font-bold tracking-tight">Estoque</span>
           </Link>
           <nav className="flex items-center gap-1">
+            <BackupMenu />
             {NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}

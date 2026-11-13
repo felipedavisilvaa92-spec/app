@@ -1,36 +1,27 @@
 # Controlador de Estoque — SPEC
 
-App de controle de estoque para e-commerce de roupas. UI toda em português (pt-BR). **Sem autenticação** — acesso direto, sem login.
+App de controle de estoque para e-commerce de roupas. UI toda em português (pt-BR). **Sem login.**
+**100% frontend / estático**: pensado para hospedar só a pasta `frontend/` na Vercel. Não usa o backend Python nem o MongoDB — todos os dados ficam no **LocalStorage** do navegador (chave `controlador-estoque:v1`). A pasta `backend/` continua no repositório, mas o app não usa mais.
 
 ## O que faz
-- Catálogo fixo (backend/lib/catalog.py): **Camiseta** (P/M/G/GG × 12 cores: cinza, roxo, amarelo, azul royal, azul marinho, preta, branca, caqui, marrom, rosa, off white, vermelha), **Regata** (P/M/G/GG × 4 cores: marrom, preta, bege, branca) e **Short** (P/M/G/GG × 3 cores: branca, preta, azul marinho) = **76 variantes**.
-- **/estoque**: matriz cor × tamanho por produto, quantidade por variante, filtros (produto, cor, tamanho, busca por cor) e botões rápidos +/− que abrem o dialog "Nova Movimentação".
-- **Movimentações**: `entrada` (compra) e `saída` (venda) por variante com observação opcional. Saída nunca pode exceder o estoque — validação no frontend e no backend (HTTP 400, detail "Quantidade de saída maior que o estoque disponível").
-- **/historico**: histórico completo com filtro por tipo (todas/entradas/saídas).
-- **/** (Painel): total de peças, variantes zeradas, baixo estoque (1–3 peças), mais vendidos (top 5 saídas agregadas por variante) e movimentações recentes.
-- Sem preços/valores — apenas quantidades (pedido do usuário). Sem alertas configuráveis de reposição.
+- Catálogo fixo (`frontend/src/lib/catalog.ts`): **Camiseta** (P/M/G/GG × 12 cores: cinza, roxo, amarelo, azul royal, azul marinho, preta, branca, caqui, marrom, rosa, off white, vermelha), **Regata** (P/M/G/GG × marrom, preta, bege, branca) e **Short** (P/M/G/GG × branca, preta, azul marinho) = **76 variantes**. Id da variante determinístico: `produto:cor:tamanho` (ex.: `camiseta:cinza:P`).
+- **/estoque**: matriz cor × tamanho por produto, filtros, botões +/− que abrem o dialog "Nova Movimentação" (entrada/saída). Saída maior que o estoque é bloqueada.
+- **/pedidos** (Montagem de Pedidos): comprador, separador, nº automático #001+ e data/hora; itens do catálogo com checkbox de separação; finalizar abate do estoque **só os itens marcados** (tudo ou nada; erro se faltar estoque) e registra saídas com nota "Pedido #00X · comprador"; cancelar é lógico (status "cancelado", some da lista, número continua reservado); "Imprimir Pedido" na montagem e no histórico (`@media print`: some .screen-only, mostra só .print-only com nº, data, nomes, itens e linha de assinatura).
+- **/historico**: movimentações com filtro por tipo.
+- **/** (Painel): total de peças, variantes zeradas, baixo estoque (1–3), mais vendidos (top 5), movimentações recentes, botão **Exportar Excel** (gerado no navegador com `write-excel-file`, abas Estoque/Histórico).
+- **Backup** (botão no header, em todas as páginas): **Exportar Backup** baixa `backup-estoque-<data>.json`; **Importar Backup** lê o arquivo, valida (`app: "controlador-estoque"`, version 1), mostra resumo (peças, movimentações, pedidos) e só substitui os dados depois da confirmação. Mostra a data do último backup exportado.
 
-## Dados (Mongo, DB "app")
-- `stock_items`: { id (uuid string), product_type, size, color, quantity, created_at, updated_at } — índice único `variant_lookup` (product_type, color, size) + `id` único.
-- `movements`: { id (uuid string), item_id, kind, product_type, size, color, quantity, note, order_number, created_at } — índices id único, created_at desc, (kind, created_at).
-- `pedidos`: { id (uuid string), number (sequencial, exibe #001), comprador, separador, status (aberto|finalizado), items [{ id, item_id, product_type, size, color, quantity, picked }], created_at, finalized_at } — índices id único, number único, (status, created_at).
-- Seed: `cd /app/backend && python seed.py` — idempotente, cria as variantes do catálogo (76) com quantidade 0. Re-executado após reduzir as cores das regatas: variantes de regata fora do catálogo foram removidas do estoque (histórico de movimentações preservado).
+## Camada de dados (frontend)
+- `src/lib/localdb.ts`: estado `{ version: 1, created_at, quantities{variantId: n}, updated_at{variantId: iso}, movements[], orders[], last_backup_at }` + `handle(method, path, body)`, que atende as mesmas "rotas" do antigo backend: GET /catalog, /stock, /movements?kind&item_id&limit, /dashboard, /orders; POST /movements, /orders, /orders/{id}/items, /orders/{id}/finalize; PATCH /orders/{id}/items/{row}; DELETE /orders/{id}/items/{row}, /orders/{id}. Os erros usam `ApiError(status, {detail})` (400/404/422) como no FastAPI.
+- `src/lib/api.ts`: apiGet/apiPost/... encaminham para `handle()` (nenhuma requisição de rede).
+- `src/lib/backup.ts`, `src/lib/excel.ts`, `src/components/BackupMenu.tsx`.
+- Tipos TS em `src/lib/types.ts`.
 
-## API (todas sob /api)
-- GET /catalog — catálogo fixo (3 produtos com cores/tamanhos)
-- GET /stock — 76 variantes ordenadas por produto/ordem-de-catálogo
-- GET /movements?kind=&item_id=&limit= — histórico (mais recente primeiro)
-- POST /movements { item_id, kind: entrada|saida, quantity>0, note? } → registra movimento e atualiza estoque atomicamente
-- GET /dashboard — { total_pieces, zero_stock, low_stock, top_sold[5] }
-- GET /export — planilha .xlsx para backup (abas "Estoque" e "Histórico"), baixada pelo botão "Exportar Excel" no painel
-- Pedidos: POST /orders {comprador, separador}; GET /orders; POST /orders/{id}/items {item_id, quantity}; PATCH /orders/{id}/items/{row_id} {picked}; DELETE /orders/{id}/items/{row_id}; POST /orders/{id}/finalize (abate estoque dos itens marcados + registra saídas; 400 se estoque insuficiente ou nada marcado); DELETE /orders/{id} (cancelamento lógico: status "cancelado", não apaga; some da lista; número continua reservado)
-- GET /status, POST /status — endpoint do template (não usado pela UI)
+## Deploy
+- `frontend/vercel.json`: framework vite, `yarn build`, saída `dist`, rewrite SPA para /index.html. Na Vercel, defina **Root Directory = frontend**.
 
-## Frontend
-- Rotas: `/` (Dashboard), `/estoque` (matriz + dialog), `/pedidos` (montagem de pedidos), `/historico`. Layout com header glass e navegação (nav-painel/nav-estoque/nav-pedidos/nav-historico).
-- **Montagem de Pedidos** (/pedidos): cabeçalho com comprador, separador, nº automático (#001+) e data/hora; itens do catálogo com checkbox "separado"; finalizar abate do estoque **apenas os itens marcados**, registra saídas com `order_number` (visíveis no Histórico de Movimentações com note "Pedido #00X · comprador") e move o pedido para o histórico; botão "Imprimir Pedido" na montagem e no histórico renderiza comprovante (`@media print` esconde .screen-only e mostra só .print-only — nº, data, nomes, itens e linha de assinatura).
-- Tipos TS em `src/lib/types.ts` espelham `backend/models/stock.py` (Pydantic) manualmente.
-- Paleta de cores das roupas em `src/lib/colors.ts` (swatches + nomes pt-BR).
+## Dados iniciais
+- Começa vazio (todas as quantidades 0), por escolha do usuário. Não há seed.
 
 ## Credenciais
-- Nenhuma — o app não tem login. Ver memory/test_credentials.md.
+- Nenhuma — o app não tem login.

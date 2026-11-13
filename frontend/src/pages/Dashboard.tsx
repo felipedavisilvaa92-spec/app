@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, Boxes, Download, PackageX, TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
-import { apiDownload, apiGet } from "@/lib/api";
+import { apiGet } from "@/lib/api";
+import { exportExcel } from "@/lib/excel";
 import { colorMeta, productName } from "@/lib/colors";
 import { formatDateTime } from "@/lib/format";
 import type { Catalog, DashboardSummary, Movement } from "@/lib/types";
@@ -52,7 +53,7 @@ export default function Dashboard() {
   });
 
   const exportMutation = useMutation({
-    mutationFn: () => apiDownload("/export", "estoque.xlsx"),
+    mutationFn: exportExcel,
     onSuccess: () => toast.success("Planilha baixada com sucesso!"),
     onError: () => toast.error("Não foi possível gerar a planilha."),
   });
