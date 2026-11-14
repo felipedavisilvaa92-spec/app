@@ -1,485 +1,115 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import JsBarcode from "jsbarcode";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, Search } from "lucide-react";
+import { Minus, Plus, Printer, Search } from "lucide-react";
 import { toast } from "sonner";
-import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { colorMeta, productNamePlural } from "@/lib/colors";
 import type { Catalog, Movement, MovementCreate, MovementKind, StockItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorSwatch } from "@/components/ColorSwatch";
 
 const COLOR_ALL = "todas";
 const SIZE_ALL = "todos";
+type PieceLabel = { id: string; serial_code: string; shop_id: string; product_type: string; color: string; size: string; status: string; created_at?: string };
+
+function LabelBarcode({ code }: { code: string }) {
+  useEffect(() => {
+    const node = document.getElementById(`barcode-${code}`) as SVGSVGElement | null;
+    if (node) JsBarcode(node, code, { format: "CODE128", width: 1.7, height: 48, displayValue: false, margin: 3 });
+  }, [code]);
+  return <svg id={`barcode-${code}`} aria-label={`Código de barras ${code}`} />;
+}
+
+async function currentShopId() {
+  const { data, error } = await supabase.rpc("get_my_shop");
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.shop_id) throw new Error("Não foi possível identificar a loja atual.");
+  return row.shop_id as string;
+}
 
 export default function Estoque() {
   const queryClient = useQueryClient();
-
   const catalogQuery = useQuery({ queryKey: ["catalog"], queryFn: () => apiGet<Catalog>("/catalog") });
   const stockQuery = useQuery({ queryKey: ["stock"], queryFn: () => apiGet<StockItem[]>("/stock") });
-
-  const products = catalogQuery.data?.products ?? [];
-  const stock = stockQuery.data ?? [];
-
   const [productType, setProductType] = useState("camiseta");
   const [colorFilter, setColorFilter] = useState(COLOR_ALL);
   const [sizeFilter, setSizeFilter] = useState(SIZE_ALL);
   const [search, setSearch] = useState("");
-
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [tab, setTab] = useState<"individual" | "geradas">("individual");
   const [kind, setKind] = useState<MovementKind>("entrada");
-  const [selProduct, setSelProduct] = useState("camiseta");
-  const [selColor, setSelColor] = useState<string | null>(null);
-  const [selSize, setSelSize] = useState("P");
+  const [movementVariant, setMovementVariant] = useState<StockItem | null>(null);
   const [qty, setQty] = useState("1");
   const [note, setNote] = useState("");
-
+  const [labels, setLabels] = useState<PieceLabel[]>([]);
+  const [printLabels, setPrintLabels] = useState<PieceLabel[]>([]);
+  const products = catalogQuery.data?.products ?? [];
+  const stock = stockQuery.data ?? [];
   const product = products.find((p) => p.id === productType);
-  const selProductDef = products.find((p) => p.id === selProduct);
-  const selColorValue = selColor ?? selProductDef?.colors[0] ?? "";
-  const selSizes = selProductDef?.sizes ?? [];
-  const selSizeValue = selSizes.includes(selSize) ? selSize : (selSizes[0] ?? "");
-  const selectedItem = stock.find(
-    (s) => s.product_type === selProduct && s.color === selColorValue && s.size === selSizeValue
-  );
-  const qtyNum = Number.parseInt(qty, 10);
-  const qtyValid = Number.isFinite(qtyNum) && qtyNum >= 1;
-  const exceedsStock = kind === "saida" && selectedItem != null && qtyNum > selectedItem.quantity;
-
-  const qtyOf = (color: string, size: string): number =>
-    stock.find((s) => s.product_type === productType && s.color === color && s.size === size)?.quantity ?? 0;
-
-  const openDialog = (color: string | null, size: string, moveKind: MovementKind) => {
-    setSelProduct(productType);
-    setSelColor(color);
-    setSelSize(size);
-    setKind(moveKind);
-    setQty("1");
-    setNote("");
-    setDialogOpen(true);
-  };
-
-  const createMovement = useMutation({
-    mutationFn: (body: MovementCreate) => apiPost<Movement>("/movements", body),
-    onSuccess: (_data, variables) => {
-      toast.success(
-        variables.kind === "entrada" ? "Entrada registrada com sucesso!" : "Saída registrada com sucesso!"
-      );
-      queryClient.invalidateQueries({ queryKey: ["stock"] });
-      queryClient.invalidateQueries({ queryKey: ["movements"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setDialogOpen(false);
-    },
-    onError: (error) => {
-      const message =
-        error instanceof ApiError && error.body && typeof error.body === "object" && "detail" in error.body
-          ? String((error.body as { detail: unknown }).detail)
-          : "Não foi possível registrar a movimentação.";
-      toast.error(message);
+  const generatedQuery = useQuery({
+    queryKey: ["piece-labels", productType],
+    enabled: tab === "geradas",
+    queryFn: async () => {
+      const shop = await currentShopId();
+      const { data, error } = await supabase.from("piece_labels").select("*").eq("shop_id", shop).eq("product_type", productType).order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as PieceLabel[];
     },
   });
-
+  const qtyOf = (color: string, size: string) => stock.find((s) => s.product_type === productType && s.color === color && s.size === size)?.quantity ?? 0;
+  const invalidateStock = () => {
+    void queryClient.invalidateQueries({ queryKey: ["stock"] });
+    void queryClient.invalidateQueries({ queryKey: ["movements"] });
+    void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
+  const createLabels = useMutation({
+    mutationFn: async ({ variant, amount }: { variant: StockItem; amount: number }) => {
+      const shop = await currentShopId();
+      const rows = Array.from({ length: amount }, () => ({ shop_id: shop, product_type: variant.product_type, color: variant.color, size: variant.size, status: "disponivel" }));
+      const { data, error } = await supabase.from("piece_labels").insert(rows).select("*");
+      if (error) throw error;
+      return (data ?? []) as PieceLabel[];
+    },
+    onSuccess: (created) => {
+      setPrintLabels(created);
+      setLabels(created);
+      setTab("geradas");
+      void queryClient.invalidateQueries({ queryKey: ["piece-labels"] });
+      window.setTimeout(() => window.print(), 250);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Não foi possível gerar as etiquetas."),
+  });
+  const movement = useMutation({
+    mutationFn: (body: MovementCreate) => apiPost<Movement>("/movements", body),
+    onSuccess: () => { toast.success(kind === "entrada" ? "Entrada registrada com sucesso!" : "Saída registrada com sucesso!"); invalidateStock(); setMovementVariant(null); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Não foi possível registrar a movimentação."),
+  });
   const submitMovement = (event: FormEvent) => {
     event.preventDefault();
-    if (!selectedItem || !qtyValid || exceedsStock) return;
-    createMovement.mutate({
-      item_id: selectedItem.id,
-      kind,
-      quantity: qtyNum,
-      note: note.trim() ? note.trim() : null,
-    });
+    const amount = Number.parseInt(qty, 10);
+    if (!movementVariant || !Number.isInteger(amount) || amount < 1) return;
+    movement.mutate({ item_id: movementVariant.id, kind, quantity: amount, note: note.trim() || null });
   };
+  const rows = useMemo(() => (product?.colors ?? []).filter((c) => (colorFilter === COLOR_ALL || c === colorFilter) && (!search.trim() || colorMeta(c).name.toLowerCase().includes(search.trim().toLowerCase()))), [product, colorFilter, search]);
+  if (!product) return <div className="p-8">Carregando catálogo…</div>;
 
-  if (!product) {
-    return (
-      <div className="space-y-6" data-testid="stock-loading">
-        <h1 className="font-heading text-3xl font-bold tracking-tight md:text-4xl">Estoque</h1>
-        <p className="text-sm text-muted-foreground">
-          {catalogQuery.isLoading
-            ? "Carregando catálogo..."
-            : "Catálogo indisponível — verifique a conexão e recarregue a página."}
-        </p>
-      </div>
-    );
-  }
-
-  const rows = product.colors.filter((color) => {
-    if (colorFilter !== COLOR_ALL && color !== colorFilter) return false;
-    if (search.trim() && !colorMeta(color).name.toLowerCase().includes(search.trim().toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
-  const cols = product.sizes.filter((size) => sizeFilter === SIZE_ALL || size === sizeFilter);
-  const piecesOfProduct = stock
-    .filter((s) => s.product_type === productType)
-    .reduce((acc, s) => acc + s.quantity, 0);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tight md:text-4xl">Estoque</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {product.name_plural} · {product.description} · {product.colors.length * product.sizes.length}{" "}
-            variantes · {piecesOfProduct} peças em estoque
-          </p>
-        </div>
-        <Button data-testid="btn-open-movement-modal" onClick={() => openDialog(null, "P", "entrada")}>
-          <Plus className="mr-2 size-4" /> Nova Movimentação
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-        <div className="flex flex-wrap items-center gap-3">
-          <Label className="sr-only" htmlFor="filter-product">
-            Produto
-          </Label>
-          <Select
-            value={productType}
-            onValueChange={(v) => {
-              setProductType(v as string);
-              setColorFilter(COLOR_ALL);
-              setSizeFilter(SIZE_ALL);
-            }}
-          >
-            <SelectTrigger id="filter-product" className="w-40" data-testid="filter-product-type-select">
-              <SelectValue>{(v) => productNamePlural(v as string)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {products.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name_plural}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Label className="sr-only" htmlFor="filter-color">
-            Cor
-          </Label>
-          <Select value={colorFilter} onValueChange={(v) => setColorFilter(v as string)}>
-            <SelectTrigger id="filter-color" className="w-40" data-testid="filter-color-select">
-              <SelectValue>
-                {(v) => (v === COLOR_ALL ? "Todas as cores" : colorMeta(v as string).name)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={COLOR_ALL}>Todas as cores</SelectItem>
-              {product.colors.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {colorMeta(c).name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Label className="sr-only" htmlFor="filter-size">
-            Tamanho
-          </Label>
-          <Select value={sizeFilter} onValueChange={(v) => setSizeFilter(v as string)}>
-            <SelectTrigger id="filter-size" className="w-36" data-testid="filter-size-select">
-              <SelectValue>
-                {(v) => (v === SIZE_ALL ? "Todos os tamanhos" : (v as string))}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SIZE_ALL}>Todos os tamanhos</SelectItem>
-              {product.sizes.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="relative w-full sm:w-56">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            data-testid="stock-search-input"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar cor..."
-            className="pl-8"
-          />
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-        <Table data-testid={`matrix-table-${productType}`}>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-44">Cor</TableHead>
-              {cols.map((size) => (
-                <TableHead key={size} className="text-center">
-                  {size}
-                </TableHead>
-              ))}
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={cols.length + 2}
-                  className="py-10 text-center text-sm text-muted-foreground"
-                >
-                  Nenhuma cor encontrada com os filtros atuais.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((color) => {
-                const meta = colorMeta(color);
-                const rowTotal = product.sizes.reduce((acc, s) => acc + qtyOf(color, s), 0);
-                return (
-                  <TableRow key={color}>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-2">
-                        <ColorSwatch color={color} />
-                        <span className="text-sm font-medium">{meta.name}</span>
-                      </span>
-                    </TableCell>
-                    {cols.map((size) => {
-                      const q = qtyOf(color, size);
-                      const qtyClass =
-                        q === 0 ? "text-red-400" : q <= 3 ? "text-amber-600" : "text-foreground";
-                      return (
-                        <TableCell
-                          key={size}
-                          data-testid={`matrix-cell-${productType}-${color}-${size}`}
-                          className="text-center"
-                        >
-                          <span className={`font-mono text-sm font-medium ${qtyClass}`}>{q}</span>
-                          <span className="mt-1 flex items-center justify-center gap-1">
-                            <Button
-                              size="icon-xs"
-                              variant="outline"
-                              aria-label={`Registrar entrada de ${meta.name} tamanho ${size}`}
-                              data-testid={`matrix-entrada-${productType}-${color}-${size}`}
-                              className="transition-transform duration-150 ease-out active:scale-95"
-                              onClick={() => openDialog(color, size, "entrada")}
-                            >
-                              <Plus className="size-3" />
-                            </Button>
-                            <Button
-                              size="icon-xs"
-                              variant="outline"
-                              aria-label={`Registrar saída de ${meta.name} tamanho ${size}`}
-                              data-testid={`matrix-saida-${productType}-${color}-${size}`}
-                              disabled={q === 0}
-                              className="transition-transform duration-150 ease-out active:scale-95"
-                              onClick={() => openDialog(color, size, "saida")}
-                            >
-                              <Minus className="size-3" />
-                            </Button>
-                          </span>
-                        </TableCell>
-                      );
-                    })}
-                    <TableCell
-                      className="text-right font-mono text-sm"
-                      data-testid={`matrix-row-total-${productType}-${color}`}
-                    >
-                      {rowTotal}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell>Total</TableCell>
-              {cols.map((size) => (
-                <TableCell
-                  key={size}
-                  className="text-center font-mono text-sm"
-                  data-testid={`matrix-col-total-${productType}-${size}`}
-                >
-                  {rows.reduce((acc, c) => acc + qtyOf(c, size), 0)}
-                </TableCell>
-              ))}
-              <TableCell
-                className="text-right font-mono text-sm font-semibold"
-                data-testid={`matrix-total-${productType}`}
-              >
-                {rows.reduce((acc, c) => acc + product.sizes.reduce((a, s) => a + qtyOf(c, s), 0), 0)}
-              </TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
-      </div>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">Nova Movimentação</DialogTitle>
-            <DialogDescription>Registre uma entrada (compra) ou saída (venda) de peças.</DialogDescription>
-          </DialogHeader>
-          <form data-testid="form-stock-movement" onSubmit={submitMovement} className="space-y-4">
-            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de movimentação">
-              <button
-                type="button"
-                data-testid="movement-kind-entrada"
-                onClick={() => setKind("entrada")}
-                className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors duration-150 ease-out ${
-                  kind === "entrada"
-                    ? "border-emerald-600 bg-emerald-600 text-white"
-                    : "border-input bg-background text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                Entrada
-              </button>
-              <button
-                type="button"
-                data-testid="movement-kind-saida"
-                onClick={() => setKind("saida")}
-                className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors duration-150 ease-out ${
-                  kind === "saida"
-                    ? "border-red-600 bg-red-600 text-white"
-                    : "border-input bg-background text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                Saída
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="movement-product">Produto</Label>
-                <Select
-                  value={selProduct}
-                  onValueChange={(v) => {
-                    setSelProduct(v as string);
-                    setSelColor(null);
-                  }}
-                >
-                  <SelectTrigger id="movement-product" data-testid="movement-product-select">
-                    <SelectValue>{(v) => productNamePlural(v as string)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="movement-size">Tamanho</Label>
-                <Select value={selSizeValue} onValueChange={(v) => setSelSize(v as string)}>
-                  <SelectTrigger id="movement-size" data-testid="movement-size-select">
-                    <SelectValue>{(v) => v}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selSizes.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="movement-color">Cor</Label>
-              <Select value={selColorValue} onValueChange={(v) => setSelColor(v as string)}>
-                <SelectTrigger id="movement-color" data-testid="movement-color-select">
-                  <SelectValue>{(v) => colorMeta(v as string).name}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {(selProductDef?.colors ?? []).map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {colorMeta(c).name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="movement-quantity">Quantidade</Label>
-                <Input
-                  id="movement-quantity"
-                  data-testid="input-movement-quantity"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                />
-                {exceedsStock && (
-                  <p className="text-xs font-medium text-destructive">
-                    Quantidade de saída maior que o estoque disponível
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Em estoque</Label>
-                <p className="pt-2 font-mono text-sm" data-testid="movement-current-stock">
-                  {selectedItem ? `${selectedItem.quantity} peças` : "—"}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="movement-notes">Observação (opcional)</Label>
-              <Input
-                id="movement-notes"
-                data-testid="input-movement-notes"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Ex.: fornecedor, pedido, venda..."
-              />
-            </div>
-
-            <DialogFooter>
-              <Button
-                type="submit"
-                data-testid="btn-submit-movement"
-                disabled={!selectedItem || !qtyValid || exceedsStock || createMovement.isPending}
-              >
-                {createMovement.isPending
-                  ? "Registrando..."
-                  : kind === "entrada"
-                    ? "Registrar Entrada"
-                    : "Registrar Saída"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+  return <>
+    <div className="screen-only space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="font-heading text-3xl font-bold">Estoque</h1><p className="mt-1 text-sm text-muted-foreground">{product.name_plural} · {product.description} · {stock.filter((s) => s.product_type === productType).reduce((a, s) => a + s.quantity, 0)} peças em estoque</p></div><div className="flex gap-2"><Select value={productType} onValueChange={(v) => setProductType(v as string)}><SelectTrigger className="w-44"><SelectValue>{(v) => productNamePlural(v as string)}</SelectValue></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name_plural}</SelectItem>)}</SelectContent></Select><Button onClick={() => { setMovementVariant(stock.find((s) => s.product_type === productType) ?? null); setKind("entrada"); setQty("1"); }}>Nova Movimentação</Button></div></header>
+      <div className="flex gap-2"><Button variant={tab === "individual" ? "default" : "outline"} onClick={() => setTab("individual")}>Etiquetas Individuais</Button><Button variant={tab === "geradas" ? "default" : "outline"} onClick={() => setTab("geradas")}>Etiquetas Geradas</Button></div>
+      {tab === "individual" ? <>
+        <div className="flex flex-wrap gap-3 rounded-xl border bg-white p-4"><Select value={colorFilter} onValueChange={(v) => setColorFilter(v as string)}><SelectTrigger className="w-40"><SelectValue>{(v) => v === COLOR_ALL ? "Todas as cores" : colorMeta(v as string).name}</SelectValue></SelectTrigger><SelectContent><SelectItem value={COLOR_ALL}>Todas as cores</SelectItem>{product.colors.map((c) => <SelectItem key={c} value={c}>{colorMeta(c).name}</SelectItem>)}</SelectContent></Select><Select value={sizeFilter} onValueChange={(v) => setSizeFilter(v as string)}><SelectTrigger className="w-36"><SelectValue>{(v) => v === SIZE_ALL ? "Todos os tamanhos" : v as string}</SelectValue></SelectTrigger><SelectContent><SelectItem value={SIZE_ALL}>Todos os tamanhos</SelectItem>{product.sizes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select><div className="relative"><Search className="absolute left-2 top-2.5 size-4"/><Input className="pl-8" placeholder="Buscar cor" value={search} onChange={(e) => setSearch(e.target.value)}/></div></div>
+        <div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Cor</th>{product.sizes.filter((s) => sizeFilter === SIZE_ALL || sizeFilter === s).map((s) => <th className="p-3 text-center" key={s}>{s}</th>)}</tr></thead><tbody>{rows.map((color) => <tr key={color} className="border-b last:border-0"><td className="p-3"><span className="inline-flex items-center gap-2"><ColorSwatch color={color}/>{colorMeta(color).name}</span></td>{product.sizes.filter((s) => sizeFilter === SIZE_ALL || sizeFilter === s).map((size) => { const variant = stock.find((s) => s.product_type === productType && s.color === color && s.size === size); const amount = variant?.quantity ?? 0; return <td className="p-2 text-center" key={size}><span className="font-mono">{amount}</span><div className="mt-1 flex flex-wrap justify-center gap-1"><Button size="icon-xs" variant="outline" aria-label="Registrar entrada" onClick={() => { if (variant) { setMovementVariant(variant); setKind("entrada"); setQty("1"); } }}><Plus className="size-3"/></Button><Button size="icon-xs" variant="outline" aria-label="Registrar saída" disabled={!amount} onClick={() => { if (variant) { setMovementVariant(variant); setKind("saida"); setQty("1"); } }}><Minus className="size-3"/></Button><Button size="sm" variant="outline" disabled={!variant || createLabels.isPending} onClick={() => { const answer = window.prompt(`Quantas etiquetas gerar para ${product.name} ${colorMeta(color).name} ${size}?`, "1"); if (answer === null) return; const count = Number.parseInt(answer, 10); if (!Number.isInteger(count) || count < 1 || count > 500) { toast.error("Informe uma quantidade entre 1 e 500."); return; } if (variant) createLabels.mutate({ variant, amount: count }); }}>Gerar Peças e Etiquetas</Button></div></td>; })}</tr>)}</tbody></table></div>
+      </> : <div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Código</th><th className="p-3 text-left">Produto</th><th className="p-3 text-left">Cor / Tamanho</th><th className="p-3 text-left">Status</th><th className="p-3">Ação</th></tr></thead><tbody>{(generatedQuery.data ?? []).map((label) => <tr className="border-b last:border-0" key={label.id}><td className="p-3 font-mono">{label.serial_code}</td><td className="p-3">{products.find((p) => p.id === label.product_type)?.name ?? label.product_type}</td><td className="p-3">{colorMeta(label.color).name} · {label.size}</td><td className="p-3">{label.status}</td><td className="p-3 text-center"><Button size="sm" variant="outline" onClick={() => { setPrintLabels([label]); window.setTimeout(() => window.print(), 100); }}><Printer className="mr-2 size-4"/>Reimprimir</Button></td></tr>)}{generatedQuery.isLoading && <tr><td className="p-4" colSpan={5}>Carregando etiquetas…</td></tr>}</tbody></table></div>}
+      {movementVariant && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><form onSubmit={submitMovement} className="w-full max-w-md space-y-4 rounded-xl bg-white p-6 shadow-xl"><div><h2 className="text-lg font-semibold">Nova Movimentação</h2><p className="text-sm text-muted-foreground">{product.name} · {colorMeta(movementVariant.color).name} · {movementVariant.size}</p></div><div className="grid grid-cols-2 gap-2"><Button type="button" variant={kind === "entrada" ? "default" : "outline"} onClick={() => setKind("entrada")}>Entrada</Button><Button type="button" variant={kind === "saida" ? "default" : "outline"} onClick={() => setKind("saida")}>Saída</Button></div><Label>Quantidade<Input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)}/></Label><Label>Observação (opcional)<Input value={note} onChange={(e) => setNote(e.target.value)}/></Label><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setMovementVariant(null)}>Cancelar</Button><Button type="submit" disabled={movement.isPending}>Registrar {kind === "entrada" ? "Entrada" : "Saída"}</Button></div></form></div>}
     </div>
-  );
+    <div className="print-labels">{printLabels.map((label) => <article className="piece-label" key={label.id}><LabelBarcode code={label.serial_code}/><strong>{label.serial_code}</strong><span>{products.find((p) => p.id === label.product_type)?.name ?? label.product_type}</span><span>{colorMeta(label.color).name} · {label.size}</span></article>)}</div>
+    <style>{` .print-labels{display:none}@media print{@page{margin:8mm}.screen-only{display:none!important}.print-labels{display:grid;grid-template-columns:repeat(2,70mm);gap:5mm}.piece-label{height:42mm;border:1px solid #ddd;display:flex;flex-direction:column;align-items:center;justify-content:center;page-break-inside:avoid;font:12px Arial,sans-serif}.piece-label svg{max-width:62mm}.piece-label strong{font: bold 15px monospace;margin:2px}.piece-label span{margin:1px}}`}</style>
+  </>;
 }
