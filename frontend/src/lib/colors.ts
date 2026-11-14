@@ -30,6 +30,7 @@ export function colorMeta(colorId: string): ColorMeta {
 
 const PRODUCT_NAMES: Record<string, { singular: string; plural: string }> = {
   camiseta: { singular: "Camiseta", plural: "Camisetas" },
+  camiseta_infantil: { singular: "Camiseta Infantil", plural: "Camisetas Infantis" },
   regata: { singular: "Regata", plural: "Regatas" },
   short: { singular: "Short", plural: "Shorts" },
 };

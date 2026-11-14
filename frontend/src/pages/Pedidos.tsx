@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { colorMeta, productName, productNamePlural } from "@/lib/colors";
 import { formatDateTime } from "@/lib/format";
-import { SIZES } from "@/lib/types";
 import type { Catalog, Order, OrderCreate, StockItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,8 +70,10 @@ export default function Pedidos() {
 
   const selProductDef = products.find((p) => p.id === selProduct);
   const selColorValue = selColor ?? selProductDef?.colors[0] ?? "";
+  const selSizes = selProductDef?.sizes ?? [];
+  const selSizeValue = selSizes.includes(selSize) ? selSize : (selSizes[0] ?? "");
   const selectedVariant = stock.find(
-    (s) => s.product_type === selProduct && s.color === selColorValue && s.size === selSize
+    (s) => s.product_type === selProduct && s.color === selColorValue && s.size === selSizeValue
   );
   const qtyNum = Number.parseInt(qty, 10);
   const qtyValid = Number.isFinite(qtyNum) && qtyNum >= 1;
@@ -297,12 +298,12 @@ export default function Pedidos() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="add-size">Tamanho</Label>
-                    <Select value={selSize} onValueChange={(v) => setSelSize(v as string)}>
+                    <Select value={selSizeValue} onValueChange={(v) => setSelSize(v as string)}>
                       <SelectTrigger id="add-size" className="w-24" data-testid="order-add-size-select">
                         <SelectValue>{(v) => v}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {SIZES.map((s) => (
+                        {selSizes.map((s) => (
                           <SelectItem key={s} value={s}>
                             {s}
                           </SelectItem>

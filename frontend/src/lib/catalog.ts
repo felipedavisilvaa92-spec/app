@@ -16,6 +16,7 @@ const CAMISETA_COLORS = [
   "off_white",
   "vermelha",
 ];
+const KIDS_SIZES = ["2", "4", "6", "8", "10", "12", "14", "16"];
 const REGATA_COLORS = ["marrom", "preta", "bege", "branca"];
 const SHORT_COLORS = ["branca", "preta", "azul_marinho"];
 
@@ -26,6 +27,14 @@ export const PRODUCTS: ProductType[] = [
     name_plural: "Camisetas",
     description: "Camisetas unissex em algodão",
     sizes: [...SIZES],
+    colors: CAMISETA_COLORS,
+  },
+  {
+    id: "camiseta_infantil",
+    name: "Camiseta Infantil",
+    name_plural: "Camisetas Infantis",
+    description: "Camisetas infantis em algodão",
+    sizes: KIDS_SIZES,
     colors: CAMISETA_COLORS,
   },
   {

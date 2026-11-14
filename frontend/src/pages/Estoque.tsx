@@ -5,7 +5,6 @@ import { Minus, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { colorMeta, productNamePlural } from "@/lib/colors";
-import { SIZES } from "@/lib/types";
 import type { Catalog, Movement, MovementCreate, MovementKind, StockItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,8 +63,10 @@ export default function Estoque() {
   const product = products.find((p) => p.id === productType);
   const selProductDef = products.find((p) => p.id === selProduct);
   const selColorValue = selColor ?? selProductDef?.colors[0] ?? "";
+  const selSizes = selProductDef?.sizes ?? [];
+  const selSizeValue = selSizes.includes(selSize) ? selSize : (selSizes[0] ?? "");
   const selectedItem = stock.find(
-    (s) => s.product_type === selProduct && s.color === selColorValue && s.size === selSize
+    (s) => s.product_type === selProduct && s.color === selColorValue && s.size === selSizeValue
   );
   const qtyNum = Number.parseInt(qty, 10);
   const qtyValid = Number.isFinite(qtyNum) && qtyNum >= 1;
@@ -165,6 +166,7 @@ export default function Estoque() {
             onValueChange={(v) => {
               setProductType(v as string);
               setColorFilter(COLOR_ALL);
+              setSizeFilter(SIZE_ALL);
             }}
           >
             <SelectTrigger id="filter-product" className="w-40" data-testid="filter-product-type-select">
@@ -394,12 +396,12 @@ export default function Estoque() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="movement-size">Tamanho</Label>
-                <Select value={selSize} onValueChange={(v) => setSelSize(v as string)}>
+                <Select value={selSizeValue} onValueChange={(v) => setSelSize(v as string)}>
                   <SelectTrigger id="movement-size" data-testid="movement-size-select">
                     <SelectValue>{(v) => v}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {SIZES.map((s) => (
+                    {selSizes.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>
