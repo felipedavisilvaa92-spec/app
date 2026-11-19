@@ -1,11 +1,34 @@
 import { colorMeta, productName } from "@/lib/colors";
 import { formatDateTime } from "@/lib/format";
-import type { Order } from "@/lib/types";
+import type { Order, OrderItem } from "@/lib/types";
+
+type GroupedReceiptItem = {
+  product_type: string;
+  color: string;
+  size: string;
+  quantity: number;
+  pickedQuantity: number;
+};
 
 // Comprovante do pedido: some da tela (print-only) e aparece limpo na impressão (@media print).
 export default function OrderReceipt({ order }: { order: Order }) {
-  const total = order.items.reduce((acc, item) => acc + item.quantity, 0);
-  const pickedTotal = order.items.reduce((acc, item) => acc + (item.picked ? item.quantity : 0), 0);
+  const groupedItems = new Map<string, GroupedReceiptItem>();
+  for (const item of order.items) {
+    const key = JSON.stringify([item.product_type, item.color, item.size]);
+    const group = groupedItems.get(key) ?? {
+      product_type: item.product_type,
+      color: item.color,
+      size: item.size,
+      quantity: 0,
+      pickedQuantity: 0,
+    };
+    group.quantity += item.quantity;
+    if (item.picked) group.pickedQuantity += item.quantity;
+    groupedItems.set(key, group);
+  }
+  const items = [...groupedItems.values()];
+  const total = items.reduce((acc, item) => acc + item.quantity, 0);
+  const pickedTotal = items.reduce((acc, item) => acc + item.pickedQuantity, 0);
 
   return (
     <div className="print-only bg-white p-8 text-black" data-testid="print-receipt">
@@ -37,14 +60,20 @@ export default function OrderReceipt({ order }: { order: Order }) {
             </tr>
           </thead>
           <tbody>
-            {order.items.map((item) => (
-              <tr key={item.id} className="border-b border-gray-400">
+            {items.map((item) => (
+              <tr key={`${item.product_type}-${item.color}-${item.size}`} className="border-b border-gray-400">
                 <td className="py-1.5">
                   {productName(item.product_type)} {colorMeta(item.color).name}
                 </td>
                 <td className="py-1.5">{item.size}</td>
                 <td className="py-1.5 text-right font-mono">{item.quantity}</td>
-                <td className="py-1.5 text-center font-mono">{item.picked ? "X" : "—"}</td>
+                <td className="py-1.5 text-center font-mono">
+                  {item.pickedQuantity === item.quantity
+                    ? "X"
+                    : item.pickedQuantity === 0
+                      ? "—"
+                      : `${item.pickedQuantity}/${item.quantity}`}
+                </td>
               </tr>
             ))}
           </tbody>

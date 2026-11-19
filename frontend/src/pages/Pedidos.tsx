@@ -8,7 +8,7 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { colorMeta, productName, productNamePlural } from "@/lib/colors";
 import { formatDateTime } from "@/lib/format";
-import type { Catalog, Order, OrderCreate, StockItem } from "@/lib/types";
+import type { Catalog, Order, OrderCreate, OrderItem, StockItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import OrderReceipt from "@/components/OrderReceipt";
 const COLOR_ALL = "todas";
 type PieceLabel = { id: string; serial_code: string; shop_id: string; product_type: string; color: string; size: string; status: string };
 type ScannedPiece = { label: PieceLabel; orderItemId: string };
+type OrderItemGroup = { key: string; product_type: string; color: string; size: string; items: OrderItem[] };
 function orderLabel(number: number) { return `#${String(number).padStart(3, "0")}`; }
 function errorMessage(error: unknown) {
   if (error instanceof ApiError && error.body && typeof error.body === "object" && "detail" in error.body) return String((error.body as { detail: unknown }).detail);
@@ -45,6 +46,22 @@ function playTone(success: boolean) {
     oscillator.start(); oscillator.stop(context.currentTime + 0.12);
     oscillator.onended = () => void context.close();
   } catch { /* Audio feedback is optional. */ }
+}
+function groupOrderItems(items: OrderItem[]): OrderItemGroup[] {
+  const groups = new Map<string, OrderItemGroup>();
+  for (const item of items) {
+    const key = JSON.stringify([item.product_type, item.color, item.size]);
+    const group = groups.get(key) ?? {
+      key,
+      product_type: item.product_type,
+      color: item.color,
+      size: item.size,
+      items: [],
+    };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 export default function Pedidos() {
@@ -162,7 +179,21 @@ export default function Pedidos() {
   const createOrder = useMutation({ mutationFn: (body: OrderCreate) => apiPost<Order>("/orders", body), onSuccess: (order) => { toast.success(`Pedido ${orderLabel(order.number)} iniciado!`); setComprador(""); invalidate(); } });
   const addItem = useMutation({ mutationFn: (body: { item_id: string; quantity: number }) => apiPost<Order>(`/orders/${openOrder?.id ?? ""}/items`, body), onSuccess: () => { toast.success("Item adicionado ao pedido."); invalidate(); } });
   const toggleItem = useMutation({ mutationFn: (body: { rowId: string; picked: boolean }) => apiPatch<Order>(`/orders/${openOrder?.id ?? ""}/items/${body.rowId}`, { picked: body.picked }), onSuccess: () => invalidate() });
-  const removeItem = useMutation({ mutationFn: async (rowId: string) => { const linked = scannedRef.current.find((piece) => piece.orderItemId === rowId); if (linked) { await restoreScanned(linked); publishScanned(scannedRef.current.filter((piece) => piece.orderItemId !== rowId)); } else { await apiDelete(`/orders/${openOrder?.id ?? ""}/items/${rowId}`); } }, onSuccess: () => invalidate() });
+  const removeItems = useMutation({
+    mutationFn: async (itemIds: string[]) => {
+      const linkedPieces = scannedRef.current.filter((piece) => itemIds.includes(piece.orderItemId));
+      for (const piece of linkedPieces) {
+        await restoreScanned(piece);
+        publishScanned(scannedRef.current.filter((current) => current.orderItemId !== piece.orderItemId));
+      }
+      for (const itemId of itemIds) {
+        if (!linkedPieces.some((piece) => piece.orderItemId === itemId)) {
+          await apiDelete(`/orders/${openOrder?.id ?? ""}/items/${itemId}`);
+        }
+      }
+    },
+    onSuccess: () => invalidate(),
+  });
   const finalizeOrder = useMutation({ mutationFn: () => apiPost<Order>(`/orders/${openOrder?.id ?? ""}/finalize`), onSuccess: (order) => { toast.success(`Pedido ${orderLabel(order.number)} finalizado!`); publishScanned([]); invalidate(); } });
   const cancelOrder = useMutation({ mutationFn: async () => { for (const piece of [...scannedRef.current]) await restoreScanned(piece); publishScanned([]); return apiDelete(`/orders/${openOrder?.id ?? ""}`); }, onSuccess: () => { toast.success("Pedido cancelado."); invalidate(); } });
 
@@ -181,8 +212,8 @@ export default function Pedidos() {
     return () => { if (scanner.isScanning) void scanner.stop().catch(() => undefined); scannerRef.current = null; };
   }, [cameraOn, addScannedLabel]);
 
-  const pickedCount = (openOrder?.items.filter((item) => item.picked).length ?? 0) + scanned.length;
-  const itemCount = openOrder?.items.length ?? 0;
+  const pickedCount = openOrder?.items.reduce((total, item) => total + (item.picked ? item.quantity : 0), 0) ?? 0;
+  const itemCount = openOrder?.items.reduce((total, item) => total + item.quantity, 0) ?? 0;
   const submitNewOrder = (event: FormEvent) => {
     event.preventDefault();
     if (!user?.id || !user.email) { toast.error("Não foi possível identificar sua conta."); return; }
@@ -212,13 +243,17 @@ export default function Pedidos() {
         <CardContent>
           <form onSubmit={submitNewOrder} className="grid gap-3 sm:grid-cols-3"><div className="space-y-2"><Label htmlFor="comprador">Comprador</Label><Input id="comprador" value={comprador} onChange={(event) => setComprador(event.target.value)} placeholder="Nome do comprador" required/></div><div className="space-y-2"><Label htmlFor="separador">Separador</Label><Input id="separador" value={separador} onChange={(event) => setSeparador(event.target.value)} required/></div><div className="flex items-end"><Button type="submit" disabled={createOrder.isPending || !comprador.trim() || !separador.trim()}><Plus className="mr-2 h-4 w-4"/>Iniciar Pedido</Button></div></form>
         </CardContent>
-</Card>
+      </Card>
 
       {openOrder && <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="font-heading text-xl">Pedido {orderLabel(openOrder.number)}</CardTitle><CardDescription>{openOrder.comprador} • Separador: {openOrder.separador}</CardDescription></div><Badge variant="secondary">Aberto</Badge></div></CardHeader>
         <CardContent className="space-y-5">
           <form onSubmit={submitAddItem} className="grid items-end gap-3 sm:grid-cols-5"><div className="space-y-2 sm:col-span-2"><Label>Produto</Label><Select value={selProduct} onValueChange={(value) => { setSelProduct(value); setSelColor(null); }}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{productNamePlural(product.id)}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Cor</Label><Select value={selColorValue} onValueChange={setSelColor}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{(selProductDef?.colors ?? []).map((colorId) => <SelectItem key={colorId} value={colorId}>{colorMeta(colorId).name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Tamanho</Label><Select value={selSizeValue} onValueChange={setSelSize}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{selSizes.map((size) => <SelectItem key={size} value={size}>{size}</SelectItem>)}</SelectContent></Select></div><div className="grid grid-cols-[1fr_auto] items-end gap-2"><div className="space-y-2"><Label>Qtd.</Label><Input type="number" min="1" value={qty} onChange={(event) => setQty(event.target.value)}/></div><Button type="submit" disabled={addItem.isPending}><Plus className="h-4 w-4"/></Button></div></form>
-          {openOrder.items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum item no pedido. Adicione os produtos acima ou use o bipe.</p> : <ul className="space-y-2">{openOrder.items.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div className="flex items-center gap-3"><Checkbox checked={item.picked} onCheckedChange={(checked) => toggleItem.mutate({ rowId: item.id, picked: Boolean(checked) })}/><div><p className="font-medium">{productName(item.product_type)} · {colorMeta(item.color).name} · {item.size}</p><p className="text-xs text-muted-foreground">Quantidade: {item.quantity}</p></div></div><Button type="button" size="icon" variant="ghost" onClick={() => removeItem.mutate(item.id)}><X className="h-4 w-4"/></Button></li>)}</ul>}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm text-muted-foreground">Separados/bipados: {pickedCount} de {itemCount} itens.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setPrintOrder(openOrder)}><Printer className="mr-2 h-4 w-4"/>Imprimir</Button><Button type="button" onClick={() => finalizeOrder.mutate()} disabled={finalizeOrder.isPending}><Check className="mr-2 h-4 w-4"/>Finalizar Pedido</Button></div></div>
+          {openOrder.items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum item no pedido. Adicione os produtos acima ou use o bipe.</p> : <ul className="space-y-2">{groupOrderItems(openOrder.items).map((group) => {
+            const quantity = group.items.reduce((total, item) => total + item.quantity, 0);
+            const allPicked = group.items.every((item) => item.picked);
+            return <li key={group.key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div className="flex items-center gap-3"><Checkbox checked={allPicked} onCheckedChange={(checked) => { const picked = Boolean(checked); for (const item of group.items) if (item.picked !== picked) toggleItem.mutate({ rowId: item.id, picked }); }}/><div><p className="font-medium">{productName(group.product_type)} · {colorMeta(group.color).name} · {group.size}</p><p className="text-xs text-muted-foreground">Quantidade: {quantity}</p></div></div><Button type="button" size="icon" variant="ghost" aria-label={`Remover ${productName(group.product_type)} ${colorMeta(group.color).name} tamanho ${group.size}`} onClick={() => removeItems.mutate(group.items.map((item) => item.id))} disabled={removeItems.isPending}><X className="h-4 w-4"/></Button></li>;
+          })}</ul>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm text-muted-foreground">Separados/bipados: {pickedCount} de {itemCount} peças.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setPrintOrder(openOrder)}><Printer className="mr-2 h-4 w-4"/>Imprimir</Button><Button type="button" onClick={() => finalizeOrder.mutate()} disabled={finalizeOrder.isPending}><Check className="mr-2 h-4 w-4"/>Finalizar Pedido</Button></div></div>
         </CardContent></Card>}
 
       <Card><CardHeader><CardTitle className="font-heading text-xl">Histórico de Pedidos Montados</CardTitle><CardDescription>Todos os pedidos finalizados da loja, visíveis para todos os membros.</CardDescription></CardHeader>

@@ -41,6 +41,35 @@ function MetricCard({ label, value, hint, icon, testId, valueClass }: MetricCard
   );
 }
 
+function consolidateRecentMovements(movements: Movement[]) {
+  const consolidated = new Map<string, Movement>();
+
+  for (const movement of movements) {
+    // Saídas do mesmo pedido, dia e variação representam uma única linha visual.
+    // Movimentações manuais e entradas permanecem individualizadas.
+    const key = movement.kind === "saida" && movement.order_number != null
+      ? JSON.stringify([
+          movement.order_number,
+          movement.created_at.slice(0, 10),
+          movement.product_type,
+          movement.color,
+          movement.size,
+          movement.kind,
+        ])
+      : movement.id;
+    const existing = consolidated.get(key);
+    if (existing) {
+      consolidated.set(key, { ...existing, quantity: existing.quantity + movement.quantity });
+    } else {
+      consolidated.set(key, { ...movement });
+    }
+  }
+
+  return [...consolidated.values()]
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .slice(0, 8);
+}
+
 export default function Dashboard() {
   const summaryQuery = useQuery({
     queryKey: ["dashboard"],
@@ -49,7 +78,8 @@ export default function Dashboard() {
   const catalogQuery = useQuery({ queryKey: ["catalog"], queryFn: () => apiGet<Catalog>("/catalog") });
   const recentQuery = useQuery({
     queryKey: ["movements", "recent"],
-    queryFn: () => apiGet<Movement[]>("/movements?limit=8"),
+    // Fetch enough rows so individual unit movements from one order can be combined.
+    queryFn: () => apiGet<Movement[]>("/movements?limit=50"),
   });
 
   const exportMutation = useMutation({
@@ -59,7 +89,7 @@ export default function Dashboard() {
   });
 
   const summary = summaryQuery.data;
-  const recent = recentQuery.data ?? [];
+  const recent = consolidateRecentMovements(recentQuery.data ?? []);
   const topSold = summary?.top_sold ?? [];
   const top = topSold[0];
   const totalVariants = (catalogQuery.data?.products ?? []).reduce(
