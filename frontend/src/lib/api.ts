@@ -22,13 +22,23 @@ const variant = (id: string) => VARIANTS.find((item) => item.id === id);
 const orderSelect = "*, items:order_items(*)";
 
 async function getOrders(id: string): Promise<Order[]> {
+  const { data: userResult, error: userError } = await supabase.auth.getUser();
+  ensure(userResult, userError);
+  const userId = userResult.user?.id;
+
   const { data, error } = await supabase
     .from("orders")
     .select(orderSelect)
     .eq("shop_id", id)
     .neq("status", "cancelado")
     .order("created_at", { ascending: false });
-  return ensure(data ?? [], error) as Order[];
+  const orders = ensure(data ?? [], error) as Order[];
+
+  // Open orders belong to the account using this device; finalized orders remain
+  // part of the shared shop history for every member.
+  return orders.filter((order) =>
+    order.status === "finalizado" || (order.status === "aberto" && order.created_by === userId),
+  );
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
