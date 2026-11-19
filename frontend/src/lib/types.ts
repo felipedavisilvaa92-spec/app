@@ -75,6 +75,8 @@ export interface Order {
   number: number;
   comprador: string;
   separador: string;
+  created_by: string;
+  created_by_email: string;
   status: "aberto" | "finalizado" | "cancelado";
   items: OrderItem[];
   created_at: string;
@@ -84,4 +86,6 @@ export interface Order {
 export interface OrderCreate {
   comprador: string;
   separador: string;
+  created_by: string;
+  created_by_email: string;
 }

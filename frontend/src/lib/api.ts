@@ -1,7 +1,7 @@
 import { PRODUCTS, VARIANTS } from "@/lib/catalog";
 import { supabase } from "@/lib/supabase";
 import { ApiError, fail } from "@/lib/errors";
-import type { Catalog, DashboardSummary, Movement, MovementKind, Order, OrderItem, StockItem } from "@/lib/types";
+import type { Catalog, DashboardSummary, Movement, MovementKind, Order, OrderCreate, OrderItem, StockItem } from "@/lib/types";
 
 let shopId: string | null = null;
 export const setDataShop = (id: string | null) => {
@@ -126,18 +126,34 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   }
 
   if (method === "POST" && url.pathname === "/orders") {
-    const { data: orders, error: ordersError } = await supabase
+    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    ensure(userResult, userError);
+    const user = userResult.user;
+    if (!user || data.created_by !== user.id || data.created_by_email !== user.email) {
+      fail(401, "Não foi possível confirmar a conta que está criando o pedido.");
+    }
+
+    const orderData = data as unknown as OrderCreate;
+    const { error } = await supabase.rpc("create_shop_order", {
+      p_shop_id: shop,
+      p_comprador: orderData.comprador,
+      p_separador: orderData.separador,
+      p_created_by: user.id,
+      p_created_by_email: user.email,
+    });
+    ensure(null, error);
+
+    // Fetch after creation so the client receives the database-assigned unique number.
+    const { data: order, error: fetchError } = await supabase
       .from("orders")
-      .select("number")
-      .eq("shop_id", shop);
-    ensure(orders, ordersError);
-    const number = Math.max(0, ...(orders ?? []).map((order) => order.number)) + 1;
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert({ shop_id: shop, number, comprador: data.comprador, separador: data.separador, status: "aberto" })
       .select(orderSelect)
+      .eq("shop_id", shop)
+      .eq("created_by", user.id)
+      .eq("status", "aberto")
+      .order("created_at", { ascending: false })
+      .limit(1)
       .single();
-    return ensure(order, error) as T;
+    return ensure(order, fetchError) as T;
   }
 
   if (parts[0] === "orders" && parts.length === 3 && parts[2] === "items" && method === "POST") {
