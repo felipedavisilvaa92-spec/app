@@ -210,6 +210,8 @@ function createOrder(state: DbState, body: Record<string, unknown>): Order {
     items: [],
     created_at: now(),
     finalized_at: null,
+    created_by: null,
+    created_by_email: null,
   };
   state.orders.push(order);
   return order;
