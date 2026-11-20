@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import OrderReceipt from "@/components/OrderReceipt";
 
 const COLOR_ALL = "todas";
-type PieceLabel = { id: string; serial_code: string; shop_id: string; product_type: string; color: string; size: string; status: string };
+type PieceLabel = { id: string; serial_code: string; shop_id: string; product_type: string; color: string; size: string; status: string; quantity?: number | string | null };
 type ScannedPiece = { label: PieceLabel; orderItemId: string };
 type OrderItemGroup = { key: string; product_type: string; color: string; size: string; items: OrderItem[] };
 function orderLabel(number: number) { return `#${String(number).padStart(3, "0")}`; }
@@ -51,13 +51,7 @@ function groupOrderItems(items: OrderItem[]): OrderItemGroup[] {
   const groups = new Map<string, OrderItemGroup>();
   for (const item of items) {
     const key = JSON.stringify([item.product_type, item.color, item.size]);
-    const group = groups.get(key) ?? {
-      key,
-      product_type: item.product_type,
-      color: item.color,
-      size: item.size,
-      items: [],
-    };
+    const group = groups.get(key) ?? { key, product_type: item.product_type, color: item.color, size: item.size, items: [] };
     group.items.push(item);
     groups.set(key, group);
   }
@@ -78,7 +72,6 @@ export default function Pedidos() {
   const orders = ordersQuery.data ?? [];
   const products = catalogQuery.data?.products ?? [];
   const stock = stockQuery.data ?? [];
-
   const openOrders = orders.filter((order) => order.status === "aberto" && order.created_by === user?.id);
   const openOrder = openOrders[0] ?? null;
   const finalizedOrders = orders.filter((order) => order.status === "finalizado");
@@ -107,10 +100,7 @@ export default function Pedidos() {
   const qtyValid = Number.isFinite(qtyNum) && qtyNum >= 1;
   const qtyExceedsStock = selectedVariant != null && qtyValid && qtyNum > selectedVariant.quantity;
 
-  useEffect(() => {
-    if (user?.email) setSeparador((current) => current || user.email || "");
-  }, [user?.email]);
-
+  useEffect(() => { if (user?.email) setSeparador((current) => current || user.email || ""); }, [user?.email]);
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
     void queryClient.invalidateQueries({ queryKey: ["stock"] });
@@ -126,53 +116,120 @@ export default function Pedidos() {
     scanBusy.current = true;
     setScanAlert("");
     let claimedLabel: PieceLabel | null = null;
+    let stockDeducted = false;
+    let claimedShop: string | null = null;
+    let claimedVariant: StockItem | null = null;
+    let qtdEtiqueta = 1;
     try {
       const shop = await shopId();
       const { data: label, error: findError } = await supabase.from("piece_labels").select("*").eq("shop_id", shop).eq("serial_code", code).maybeSingle();
       if (findError) throw findError;
-      if (!label || label.status !== "disponivel") {
+      if (!label) {
+        playTone(false);
+        setScanAlert(`ATENÇÃO: Etiqueta ${code} não encontrada!`);
+        return;
+      }
+      const qtdEtiqueta = Number(label.quantity) > 0 ? Number(label.quantity) : 1;
+      if (label.status !== "disponivel") {
         playTone(false);
         setScanAlert(`ATENÇÃO: Peça ${code} já foi bipada / já saiu do estoque!`);
         return;
       }
+      const variant = stock.find((item) => item.product_type === label.product_type && item.color === label.color && item.size === label.size);
+      if (!variant) throw new Error("Variante da etiqueta não existe no estoque.");
+      if (variant.quantity < qtdEtiqueta) throw new Error(`Estoque insuficiente: disponível ${variant.quantity}, etiqueta contém ${qtdEtiqueta} peças.`);
+
       const { data: claimed, error: claimError } = await supabase.from("piece_labels").update({ status: "vendida" }).eq("id", label.id).eq("shop_id", shop).eq("status", "disponivel").select("*").maybeSingle();
       if (claimError) throw claimError;
       if (!claimed) { playTone(false); setScanAlert(`ATENÇÃO: Peça ${code} já foi bipada / já saiu do estoque!`); return; }
-      claimedLabel = claimed as PieceLabel;
-      const variant = stock.find((item) => item.product_type === label.product_type && item.color === label.color && item.size === label.size);
-      if (!variant) throw new Error("Variante da etiqueta não existe no estoque.");
-      const { error: movementError } = await supabase.rpc("record_stock_movement", { p_shop_id: shop, p_item_id: variant.id, p_product_type: label.product_type, p_color: label.color, p_size: label.size, p_kind: "saida", p_quantity: 1, p_note: `Pedido ${openOrder.number}`, p_order_number: openOrder.number });
+      claimedLabel = { ...(claimed as PieceLabel), quantity: qtdEtiqueta };
+      claimedShop = shop;
+      claimedVariant = variant;
+
+      const { error: movementError } = await supabase.rpc("record_stock_movement", {
+        p_shop_id: shop,
+        p_item_id: variant.id,
+        p_product_type: label.product_type,
+        p_color: label.color,
+        p_size: label.size,
+        p_kind: "saida",
+        p_quantity: qtdEtiqueta,
+        p_note: `Pedido ${openOrder.number} - etiqueta ${code}`,
+        p_order_number: openOrder.number,
+      });
       if (movementError) throw movementError;
-      const { data: orderItem, error: itemError } = await supabase.from("order_items").insert({ shop_id: shop, order_id: openOrder.id, item_id: variant.id, product_type: label.product_type, color: label.color, size: label.size, quantity: 1, picked: true }).select("*").single();
-      if (itemError) {
-        await supabase.from("piece_labels").update({ status: "disponivel" }).eq("id", label.id).eq("shop_id", shop).eq("status", "vendida");
-        await supabase.rpc("record_stock_movement", { p_shop_id: shop, p_item_id: variant.id, p_product_type: label.product_type, p_color: label.color, p_size: label.size, p_kind: "entrada", p_quantity: 1, p_note: `Estorno peça ${code}`, p_order_number: openOrder.number });
-        claimedLabel = null;
-        throw itemError;
-      }
+      stockDeducted = true;
+
+      const { data: orderItem, error: itemError } = await supabase.from("order_items").insert({
+        shop_id: shop,
+        order_id: openOrder.id,
+        item_id: variant.id,
+        product_type: label.product_type,
+        color: label.color,
+        size: label.size,
+        quantity: qtdEtiqueta,
+        picked: true,
+      }).select("*").single();
+      if (itemError) throw itemError;
+
       publishScanned([...scannedRef.current, { label: claimedLabel, orderItemId: orderItem.id }]);
       claimedLabel = null;
       setScanValue("");
       playTone(true);
       invalidate();
     } catch (error) {
-      if (claimedLabel) {
-        const shop = await shopId().catch(() => null);
-        if (shop) await supabase.from("piece_labels").update({ status: "disponivel" }).eq("id", claimedLabel.id).eq("shop_id", shop).eq("status", "vendida");
+      if (claimedLabel && claimedShop) {
+        if (stockDeducted && claimedVariant) {
+          await supabase.rpc("record_stock_movement", {
+            p_shop_id: claimedShop,
+            p_item_id: claimedVariant.id,
+            p_product_type: claimedLabel.product_type,
+            p_color: claimedLabel.color,
+            p_size: claimedLabel.size,
+            p_kind: "entrada",
+            p_quantity: qtdEtiqueta,
+            p_note: `Estorno etiqueta ${code}`,
+            p_order_number: openOrder.number,
+          });
+        }
+        await supabase.from("piece_labels").update({ status: "disponivel" }).eq("id", claimedLabel.id).eq("shop_id", claimedShop).eq("status", "vendida");
       }
       playTone(false);
       setScanAlert(errorMessage(error));
+      invalidate();
     } finally { scanBusy.current = false; }
   }, [openOrder, stock, invalidate]);
 
   const restoreScanned = async (piece: ScannedPiece) => {
     const shop = await shopId();
-    const { error: statusError } = await supabase.from("piece_labels").update({ status: "disponivel" }).eq("id", piece.label.id).eq("shop_id", shop).eq("status", "vendida");
-    if (statusError) throw statusError;
+    const qtdEtiqueta = Number(piece.label.quantity) > 0 ? Number(piece.label.quantity) : 1;
     const variant = stock.find((item) => item.product_type === piece.label.product_type && item.color === piece.label.color && item.size === piece.label.size);
     if (!variant) throw new Error("Variante da etiqueta não existe no estoque.");
-    const { error } = await supabase.rpc("record_stock_movement", { p_shop_id: shop, p_item_id: variant.id, p_product_type: piece.label.product_type, p_color: piece.label.color, p_size: piece.label.size, p_kind: "entrada", p_quantity: 1, p_note: `Estorno peça ${piece.label.serial_code}`, p_order_number: openOrder?.number ?? null });
-    if (error) throw error;
+
+    const { error: movementError } = await supabase.rpc("record_stock_movement", {
+      p_shop_id: shop,
+      p_item_id: variant.id,
+      p_product_type: piece.label.product_type,
+      p_color: piece.label.color,
+      p_size: piece.label.size,
+      p_kind: "entrada",
+      p_quantity: qtdEtiqueta,
+      p_note: `Estorno etiqueta ${piece.label.serial_code}`,
+      p_order_number: openOrder?.number ?? null,
+    });
+    if (movementError) throw movementError;
+
+    const { error: statusError } = await supabase.from("piece_labels").update({ status: "disponivel" }).eq("id", piece.label.id).eq("shop_id", shop).eq("status", "vendida");
+    if (statusError) {
+      await supabase.rpc("record_stock_movement", {
+        p_shop_id: shop, p_item_id: variant.id, p_product_type: piece.label.product_type,
+        p_color: piece.label.color, p_size: piece.label.size, p_kind: "saida",
+        p_quantity: qtdEtiqueta, p_note: `Reaplicar baixa etiqueta ${piece.label.serial_code}`,
+        p_order_number: openOrder?.number ?? null,
+      });
+      throw statusError;
+    }
+
     await supabase.from("order_items").delete().eq("id", piece.orderItemId).eq("shop_id", shop);
   };
 
@@ -186,11 +243,7 @@ export default function Pedidos() {
         await restoreScanned(piece);
         publishScanned(scannedRef.current.filter((current) => current.orderItemId !== piece.orderItemId));
       }
-      for (const itemId of itemIds) {
-        if (!linkedPieces.some((piece) => piece.orderItemId === itemId)) {
-          await apiDelete(`/orders/${openOrder?.id ?? ""}/items/${itemId}`);
-        }
-      }
+      for (const itemId of itemIds) if (!linkedPieces.some((piece) => piece.orderItemId === itemId)) await apiDelete(`/orders/${openOrder?.id ?? ""}/items/${itemId}`);
     },
     onSuccess: () => invalidate(),
   });
@@ -198,7 +251,7 @@ export default function Pedidos() {
   const cancelOrder = useMutation({ mutationFn: async () => { for (const piece of [...scannedRef.current]) await restoreScanned(piece); publishScanned([]); return apiDelete(`/orders/${openOrder?.id ?? ""}`); }, onSuccess: () => { toast.success("Pedido cancelado."); invalidate(); } });
 
   useEffect(() => { if (!printOrder) return; const timer = window.setTimeout(() => { window.print(); setPrintOrder(null); }, 300); return () => window.clearTimeout(timer); }, [printOrder]);
-  useEffect(() => { return () => { const scanner = scannerRef.current; if (scanner?.isScanning) void scanner.stop().catch(() => undefined); }; }, []);
+  useEffect(() => () => { const scanner = scannerRef.current; if (scanner?.isScanning) void scanner.stop().catch(() => undefined); }, []);
   useEffect(() => {
     if (!cameraOn) return;
     const scanner = new Html5Qrcode("piece-label-camera");
@@ -229,37 +282,26 @@ export default function Pedidos() {
   return <>
     <div className="screen-only space-y-8">
       <div><h1 className="font-heading text-3xl font-bold tracking-tight md:text-4xl">Montagem de Pedidos</h1><p className="mt-1 text-sm text-muted-foreground">Registre as saídas, marque cada item e finalize a montagem.</p></div>
-      <Card><CardHeader><CardTitle className="font-heading text-xl">Separar com Bipe</CardTitle><CardDescription>Leia o código serial da etiqueta com leitor USB/Bluetooth ou câmera. Cada etiqueta deve ser registrada uma única vez.</CardDescription></CardHeader>
+      <Card><CardHeader><CardTitle className="font-heading text-xl">Separar com Bipe</CardTitle><CardDescription>Leia o código serial da etiqueta com leitor USB/Bluetooth ou câmera. A etiqueta de pacote baixa a quantidade de peças informada nela.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
-        <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void addScannedLabel(scanValue); }}><Input autoFocus value={scanValue} onChange={(event) => setScanValue(event.target.value)} placeholder="Código da etiqueta" disabled={!openOrder}/><Button type="submit" disabled={!openOrder}>Registrar</Button></form>
-        <div id="piece-label-camera" className={cameraOn ? "h-64 w-full overflow-hidden rounded-md border" : "hidden"}/>
-        <div className="flex gap-2"><Button type="button" variant="outline" disabled={!openOrder} onClick={() => setCameraOn(!cameraOn)}>{cameraOn ? "Desligar câmera" : "Usar câmera"}</Button>{scanned.length > 0 && <Button type="button" variant="destructive" onClick={() => void cancelOrder.mutate()} disabled={cancelOrder.isPending}>Cancelar pedido</Button>}</div>
-        {scanAlert && <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{scanAlert}</p>}
-        {!openOrder && <p className="text-sm text-muted-foreground">Não há pedido aberto da sua conta. Você pode iniciar um novo pedido a qualquer momento abaixo.</p>}
-      </CardContent></Card>
-
-      <Card>
-        <CardHeader><CardTitle className="font-heading text-xl">Novo Pedido</CardTitle><CardDescription>Qualquer membro pode iniciar um novo pedido a qualquer momento. Número gerado automaticamente pelo banco: próximo número aproximado {orderLabel(nextNumber)}.</CardDescription></CardHeader>
-        <CardContent>
-          <form onSubmit={submitNewOrder} className="grid gap-3 sm:grid-cols-3"><div className="space-y-2"><Label htmlFor="comprador">Comprador</Label><Input id="comprador" value={comprador} onChange={(event) => setComprador(event.target.value)} placeholder="Nome do comprador" required/></div><div className="space-y-2"><Label htmlFor="separador">Separador</Label><Input id="separador" value={separador} onChange={(event) => setSeparador(event.target.value)} required/></div><div className="flex items-end"><Button type="submit" disabled={createOrder.isPending || !comprador.trim() || !separador.trim()}><Plus className="mr-2 h-4 w-4"/>Iniciar Pedido</Button></div></form>
-        </CardContent>
-      </Card>
-
-      {openOrder && <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="font-heading text-xl">Pedido {orderLabel(openOrder.number)}</CardTitle><CardDescription>{openOrder.comprador} • Separador: {openOrder.separador}</CardDescription></div><Badge variant="secondary">Aberto</Badge></div></CardHeader>
-        <CardContent className="space-y-5">
-          <form onSubmit={submitAddItem} className="grid items-end gap-3 sm:grid-cols-5"><div className="space-y-2 sm:col-span-2"><Label>Produto</Label><Select value={selProduct} onValueChange={(value) => { setSelProduct(value); setSelColor(null); }}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{productNamePlural(product.id)}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Cor</Label><Select value={selColorValue} onValueChange={setSelColor}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{(selProductDef?.colors ?? []).map((colorId) => <SelectItem key={colorId} value={colorId}>{colorMeta(colorId).name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Tamanho</Label><Select value={selSizeValue} onValueChange={setSelSize}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{selSizes.map((size) => <SelectItem key={size} value={size}>{size}</SelectItem>)}</SelectContent></Select></div><div className="grid grid-cols-[1fr_auto] items-end gap-2"><div className="space-y-2"><Label>Qtd.</Label><Input type="number" min="1" value={qty} onChange={(event) => setQty(event.target.value)}/></div><Button type="submit" disabled={addItem.isPending}><Plus className="h-4 w-4"/></Button></div></form>
-          {openOrder.items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum item no pedido. Adicione os produtos acima ou use o bipe.</p> : <ul className="space-y-2">{groupOrderItems(openOrder.items).map((group) => {
-            const quantity = group.items.reduce((total, item) => total + item.quantity, 0);
-            const allPicked = group.items.every((item) => item.picked);
-            return <li key={group.key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div className="flex items-center gap-3"><Checkbox checked={allPicked} onCheckedChange={(checked) => { const picked = Boolean(checked); for (const item of group.items) if (item.picked !== picked) toggleItem.mutate({ rowId: item.id, picked }); }}/><div><p className="font-medium">{productName(group.product_type)} · {colorMeta(group.color).name} · {group.size}</p><p className="text-xs text-muted-foreground">Quantidade: {quantity}</p></div></div><Button type="button" size="icon" variant="ghost" aria-label={`Remover ${productName(group.product_type)} ${colorMeta(group.color).name} tamanho ${group.size}`} onClick={() => removeItems.mutate(group.items.map((item) => item.id))} disabled={removeItems.isPending}><X className="h-4 w-4"/></Button></li>;
-          })}</ul>}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm text-muted-foreground">Separados/bipados: {pickedCount} de {itemCount} peças.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setPrintOrder(openOrder)}><Printer className="mr-2 h-4 w-4"/>Imprimir</Button><Button type="button" onClick={() => finalizeOrder.mutate()} disabled={finalizeOrder.isPending}><Check className="mr-2 h-4 w-4"/>Finalizar Pedido</Button></div></div>
-        </CardContent></Card>}
-
-      <Card><CardHeader><CardTitle className="font-heading text-xl">Histórico de Pedidos Montados</CardTitle><CardDescription>Todos os pedidos finalizados da loja, visíveis para todos os membros.</CardDescription></CardHeader>
-        <CardContent>{finalizedOrders.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum pedido finalizado.</p> : <Table><TableHeader><TableRow><TableHead>Pedido</TableHead><TableHead>Comprador</TableHead><TableHead>Separador</TableHead><TableHead>Finalizado em</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{finalizedOrders.map((order) => <TableRow key={order.id}><TableCell>{orderLabel(order.number)}</TableCell><TableCell>{order.comprador}</TableCell><TableCell>{order.separador}</TableCell><TableCell>{formatDateTime(order.finalized_at ?? "")}</TableCell><TableCell><Button type="button" size="icon" variant="ghost" onClick={() => setPrintOrder(order)}><Printer className="h-4 w-4"/></Button></TableCell></TableRow>)}</TableBody></Table>}</CardContent>
-      </Card>
+          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void addScannedLabel(scanValue); }}><Input autoFocus value={scanValue} onChange={(event) => setScanValue(event.target.value)} placeholder="Código da etiqueta" disabled={!openOrder}/><Button type="submit" disabled={!openOrder}>Registrar</Button></form>
+          <div id="piece-label-camera" className={cameraOn ? "h-64 w-full overflow-hidden rounded-md border" : "hidden"}/>
+          <div className="flex gap-2"><Button type="button" variant="outline" disabled={!openOrder} onClick={() => setCameraOn(!cameraOn)}>{cameraOn ? "Desligar câmera" : "Usar câmera"}</Button>{scanned.length > 0 && <Button type="button" variant="destructive" onClick={() => void cancelOrder.mutateAsync()} disabled={cancelOrder.isPending}>Cancelar pedido</Button>}</div>
+          {scanAlert && <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{scanAlert}</p>}
+          {!openOrder && <p className="text-sm text-muted-foreground">Não há pedido aberto da sua conta. Você pode iniciar um novo pedido a qualquer momento abaixo.</p>}
+        </CardContent></Card>
+      <Card><CardHeader><CardTitle className="font-heading text-xl">Novo Pedido</CardTitle><CardDescription>Qualquer membro pode iniciar um pedido. Próximo número aproximado: {orderLabel(nextNumber)}.</CardDescription></CardHeader><CardContent><form onSubmit={submitNewOrder} className="grid gap-3 sm:grid-cols-3"><div className="space-y-2"><Label htmlFor="comprador">Comprador</Label><Input id="comprador" value={comprador} onChange={(event) => setComprador(event.target.value)} placeholder="Nome do comprador" required/></div><div className="space-y-2"><Label htmlFor="separador">Separador</Label><Input id="separador" value={separador} onChange={(event) => setSeparador(event.target.value)} required/></div><div className="flex items-end"><Button type="submit" disabled={createOrder.isPending || !comprador.trim() || !separador.trim()}><Plus className="mr-2 h-4 w-4"/>Iniciar Pedido</Button></div></form></CardContent></Card>
+      {openOrder && <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="font-heading text-xl">Pedido {orderLabel(openOrder.number)}</CardTitle><CardDescription>{openOrder.comprador} · Separador: {openOrder.separador}</CardDescription></div><Badge variant="secondary">Aberto</Badge></div></CardHeader><CardContent className="space-y-5">
+        <form onSubmit={submitAddItem} className="grid items-end gap-3 sm:grid-cols-5"><div className="space-y-2 sm:col-span-2"><Label>Produto</Label><Select value={selProduct} onValueChange={(value) => { setSelProduct(value); setSelColor(null); }}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{productNamePlural(product.id)}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Cor</Label><Select value={selColorValue} onValueChange={setSelColor}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{(selProductDef?.colors ?? []).map((color) => <SelectItem key={color} value={color}>{colorMeta(color).name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Tamanho</Label><Select value={selSizeValue} onValueChange={setSelSize}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{selSizes.map((size) => <SelectItem key={size} value={size}>{size}</SelectItem>)}</SelectContent></Select></div><div className="grid grid-cols-[1fr_auto] items-end gap-2"><div className="space-y-2"><Label>Qtd.</Label><Input type="number" min="1" value={qty} onChange={(event) => setQty(event.target.value)}/></div><Button type="submit" disabled={addItem.isPending || !selectedVariant || !qtyValid || qtyExceedsStock}><Plus className="h-4 w-4"/></Button></div></form>
+        {openOrder.items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum item no pedido. Adicione produtos acima ou use o bipe.</p> : <ul className="space-y-2">{groupOrderItems(openOrder.items).map((group) => {
+          const quantity = group.items.reduce((total, item) => total + item.quantity, 0);
+          const allPicked = group.items.every((item) => item.picked);
+          return <li key={group.key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><div className="flex items-center gap-3"><Checkbox checked={allPicked} onCheckedChange={(checked) => { const picked = Boolean(checked); for (const item of group.items) if (item.picked !== picked) toggleItem.mutate({ rowId: item.id, picked }); }}/><div><p className="font-medium">{productName(group.product_type)} · {colorMeta(group.color).name} · {group.size}</p><p className="text-xs text-muted-foreground">Quantidade: {quantity}</p></div></div><Button type="button" size="icon" variant="ghost" aria-label={`Remover ${productName(group.product_type)} ${colorMeta(group.color).name} tamanho ${group.size}`} onClick={() => removeItems.mutate(group.items.map((item) => item.id))} disabled={removeItems.isPending}><X className="h-4 w-4"/></Button></li>;
+        })}</ul>}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm text-muted-foreground">Separados/bipados: {pickedCount} de {itemCount} peças.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setPrintOrder(openOrder)}><Printer className="mr-2 h-4 w-4"/>Imprimir</Button><Button type="button" onClick={() => finalizeOrder.mutate()} disabled={finalizeOrder.isPending || itemCount === 0}><Check className="mr-2 h-4 w-4"/>Finalizar Pedido</Button></div></div>
+      </CardContent></Card>}
+      <Card><CardHeader><CardTitle className="font-heading text-xl">Histórico de Pedidos Montados</CardTitle><CardDescription>Pedidos finalizados da loja, visíveis para todos os membros.</CardDescription></CardHeader><CardContent>{finalizedOrders.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum pedido finalizado.</p> : <Table><TableHeader><TableRow><TableHead>Pedido</TableHead><TableHead>Comprador</TableHead><TableHead>Separador</TableHead><TableHead>Finalizado em</TableHead><TableHead/></TableRow></TableHeader><TableBody>{finalizedOrders.map((order) => <TableRow key={order.id}><TableCell>{orderLabel(order.number)}</TableCell><TableCell>{order.comprador}</TableCell><TableCell>{order.separador}</TableCell><TableCell>{formatDateTime(order.finalized_at ?? "")}</TableCell><TableCell><Button type="button" size="icon" variant="ghost" onClick={() => setPrintOrder(order)} aria-label="Imprimir pedido"><Printer className="h-4 w-4"/></Button></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
     </div>
-    {printOrder && <OrderReceipt order={printOrder}/>} 
+    {printOrder && <OrderReceipt order={printOrder}/>}
   </>;
 }
